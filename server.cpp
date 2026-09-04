@@ -1,23 +1,31 @@
 #include "rpc/rpc_server.hpp"
 
+#include <iostream>
+#include <string>
+
 int main() {
 
   RpcServer server("/tmp/demo_rpc.sock");
 
-  server.register_method("add", [](const rpc::json &params) -> rpc::json {
-    int a = params[0].get<int>();
+  // int(int, int)
+  server.register_method("add", [](int a, int b) { return a + b; });
 
-    int b = params[1].get<int>();
+  // double(double, double)
+  server.register_method("divide", [](double a, double b) {
+    if (b == 0.0) {
+      throw std::runtime_error("Division by zero");
+    }
 
-    return a + b;
+    return a / b;
   });
 
-  server.register_method("multiply", [](const rpc::json &params) -> rpc::json {
-    int a = params[0].get<int>();
+  // std::string(std::string)
+  server.register_method("hello",
+                         [](std::string name) { return "Hello, " + name; });
 
-    int b = params[1].get<int>();
-
-    return a * b;
+  // void(std::string)
+  server.register_method("log", [](std::string message) {
+    std::cout << "[LOG] " << message << std::endl;
   });
 
   server.run();

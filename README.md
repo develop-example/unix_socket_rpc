@@ -2,6 +2,7 @@
 minimal example for explain unix socket rpc 
 
 update:
+- 模板化rpc client/server
 - 升级消息协议层, 改成Length-Prefixed Protocol（长度前缀协议）
 - 增加 RpcClient / RpcServer 封装
 
@@ -23,44 +24,71 @@ make
 ```
 
 ### 3. 原理
+- client
 ```
-RpcRequest
-    │
-    ├── id
-    ├── method
-    └── params
+C++ Arguments
+
+10, 20
+   │
+   ▼
+make_params()
+   │
+   ▼
+JSON
+
+[10, 20]
+   │
+   ▼
+RPC Request
+
+{
+    "id": 1,
+    "method": "add",
+    "params": [10, 20]
+}
+```
+- server
+```
+RPC Request
+      │
+      ▼
+JSON params
+
+[10, 20]
+      │
+      ▼
+json_to_tuple
+
+tuple<int, int>
+      │
+      ▼
+std::apply
+
+lambda(10, 20)
+      │
+      ▼
+30
+      │
+      ▼
+JSON Response
+
+```
+- 核心转换
+```
+Client Side
+
+Args...
+   ↓
+JSON Array
 
 
-RpcResponse
-    │
-    ├── id
-    ├── result
-    └── error
+Server Side
 
-
-┌──────────────────────────────┐
-│        Application           │
-│                              │
-│ client.call("add", 10, 20)   │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│          RPC Layer           │
-│                              │
-│ Request / Response           │
-│ Method / Params / ID         │
-└──────────────┬───────────────┘
-               │ JSON
-               ▼
-┌──────────────────────────────┐
-│       Message Framing        │
-│                              │
-│ [Length][Payload]            │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│      Unix Domain Socket      │
-└──────────────────────────────┘
+JSON Array
+   ↓
+Tuple<Args...>
+   ↓
+std::apply()
+   ↓
+Function Call
 ```

@@ -50,12 +50,6 @@ RpcServer::~RpcServer() {
   unlink(socket_path_.c_str());
 }
 
-void RpcServer::register_method(
-    const std::string &name,
-    std::function<rpc::json(const rpc::json &)> handler) {
-  handlers_[name] = std::move(handler);
-}
-
 void RpcServer::run() {
 
   std::cout << "RPC Server listening on " << socket_path_ << std::endl;
