@@ -2,6 +2,7 @@
 minimal example for explain unix socket rpc 
 
 update:
+- 升级消息协议层, 改成Length-Prefixed Protocol（长度前缀协议）
 - 增加 RpcClient / RpcServer 封装
 
 ### 1. build
@@ -23,37 +24,50 @@ make
 
 ### 3. 原理
 ```
-┌──────────────────────────────┐
-│        Application           │
-│                              │
-│ client.call("add", 10, 20)   │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│         RpcClient            │
-│                              │
-│ Serialize Request            │
-│ Connect Socket               │
-│ Send / Receive               │
-└──────────────┬───────────────┘
-               │
-               ▼
-         Unix Socket
-               │
-               ▼
-┌──────────────────────────────┐
-│         RpcServer            │
-│                              │
-│ Parse Request                │
-│ Find Handler                 │
-│ Execute Function             │
-└──────────────┬───────────────┘
-               │
-               ▼
-        handlers_
-        ┌───────────────┐
-        │ add      ───► │ lambda
-        │ multiply ───► │ lambda
-        └───────────────┘
+Application
+    │
+    │ call("add", 10, 20)
+    ▼
+RpcClient
+    │
+    │ Serialize
+    ▼
+"add 10 20"
+    │
+    ▼
+Protocol
+    │
+    ├── Length = 9
+    │
+    └── Payload = "add 10 20"
+    │
+    ▼
+┌─────────────┬──────────────┐
+│ 00 00 00 09│ add 10 20    │
+└─────────────┴──────────────┘
+    │
+    ▼
+Unix Domain Socket
+    │
+    ▼
+Protocol
+    │
+    ├── read 4 bytes
+    │
+    ├── length = 9
+    │
+    └── read 9 bytes
+    ▼
+"add 10 20"
+    │
+    ▼
+RpcServer
+    │
+    ├── Parse Method
+    │
+    ├── Find Handler
+    │
+    └── Execute
+    ▼
+30
 ```

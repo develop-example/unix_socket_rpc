@@ -1,4 +1,5 @@
 #include "rpc/rpc_client.hpp"
+#include "rpc/protocol.hpp"
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -12,53 +13,52 @@ RpcClient::RpcClient(std::string socket_path)
     : socket_path_(std::move(socket_path)) {}
 
 int RpcClient::call(const std::string &method, int a, int b) {
-  // 1. 创建 Unix Socket
+  // 创建 Unix Socket
   int fd = socket(AF_UNIX, SOCK_STREAM, 0);
 
   if (fd < 0) {
     throw std::runtime_error("Failed to create socket");
   }
 
-  // 2. 配置 Server 地址
   sockaddr_un addr{};
   addr.sun_family = AF_UNIX;
 
   std::strncpy(addr.sun_path, socket_path_.c_str(), sizeof(addr.sun_path) - 1);
 
-  // 3. 连接 Server
+  // 连接 Server
   if (connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
 
     close(fd);
 
-    throw std::runtime_error("Failed to connect to RPC server");
+    throw std::runtime_error("Failed to connect RPC server");
   }
 
-  // 4. 序列化 RPC 请求
-  //
-  // add 10 20
-  //
+  // 构造 RPC Request
   std::string request =
       method + " " + std::to_string(a) + " " + std::to_string(b);
 
-  // 5. 发送请求
-  ssize_t sent = write(fd, request.data(), request.size());
-
-  if (sent < 0) {
+  // 使用协议层发送
+  if (!rpc::send_message(fd, request)) {
     close(fd);
-    throw std::runtime_error("Failed to send request");
+
+    throw std::runtime_error("Failed to send RPC request");
   }
 
-  // 6. 接收响应
-  char buffer[1024] = {};
+  // 使用协议层接收
+  std::string response;
 
-  ssize_t n = read(fd, buffer, sizeof(buffer) - 1);
+  if (!rpc::recv_message(fd, response)) {
+    close(fd);
+
+    throw std::runtime_error("Failed to receive RPC response");
+  }
 
   close(fd);
 
-  if (n <= 0) {
-    throw std::runtime_error("Failed to receive response");
+  // RPC Error
+  if (response.rfind("ERROR", 0) == 0) {
+    throw std::runtime_error(response);
   }
 
-  // 7. 反序列化响应
-  return std::stoi(std::string(buffer, n));
+  return std::stoi(response);
 }

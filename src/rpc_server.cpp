@@ -1,4 +1,5 @@
 #include "rpc/rpc_server.hpp"
+#include "rpc/protocol.hpp"
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -12,23 +13,19 @@
 RpcServer::RpcServer(std::string socket_path)
     : socket_path_(std::move(socket_path)) {
 
-  // 删除旧 socket 文件
   unlink(socket_path_.c_str());
 
-  // 创建 Socket
   server_fd_ = socket(AF_UNIX, SOCK_STREAM, 0);
 
   if (server_fd_ < 0) {
     throw std::runtime_error("Failed to create server socket");
   }
 
-  // 地址
   sockaddr_un addr{};
   addr.sun_family = AF_UNIX;
 
   std::strncpy(addr.sun_path, socket_path_.c_str(), sizeof(addr.sun_path) - 1);
 
-  // bind
   if (bind(server_fd_, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
 
     close(server_fd_);
@@ -36,7 +33,6 @@ RpcServer::RpcServer(std::string socket_path)
     throw std::runtime_error("Failed to bind socket");
   }
 
-  // listen
   if (listen(server_fd_, 10) < 0) {
 
     close(server_fd_);
@@ -65,28 +61,29 @@ void RpcServer::run() {
 
   while (true) {
 
-    // 1. 等待 Client
     int client_fd = accept(server_fd_, nullptr, nullptr);
 
     if (client_fd < 0) {
       continue;
     }
 
-    // 2. 接收请求
-    char buffer[1024] = {};
+    // ========================
+    // Protocol Layer
+    // ========================
 
-    ssize_t n = read(client_fd, buffer, sizeof(buffer) - 1);
+    std::string request;
 
-    if (n <= 0) {
+    if (!rpc::recv_message(client_fd, request)) {
+
       close(client_fd);
       continue;
     }
 
-    // 3. 解析请求
-    //
-    // add 10 20
-    //
-    std::istringstream iss(std::string(buffer, n));
+    // ========================
+    // RPC Layer
+    // ========================
+
+    std::istringstream iss(request);
 
     std::string method;
     int a, b;
@@ -95,7 +92,6 @@ void RpcServer::run() {
 
     std::string response;
 
-    // 4. 查找 RPC Handler
     auto it = handlers_.find(method);
 
     if (it == handlers_.end()) {
@@ -104,15 +100,16 @@ void RpcServer::run() {
 
     } else {
 
-      // 5. 调用真实函数
       int result = it->second(a, b);
 
-      // 6. 序列化返回结果
       response = std::to_string(result);
     }
 
-    // 7. 返回响应
-    write(client_fd, response.data(), response.size());
+    // ========================
+    // Protocol Layer
+    // ========================
+
+    rpc::send_message(client_fd, response);
 
     close(client_fd);
   }
