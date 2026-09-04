@@ -26,7 +26,9 @@ RpcServer::RpcServer(std::string socket_path)
   addr.sun_family = AF_UNIX;
 
   if (socket_path_.size() >= sizeof(addr.sun_path)) {
+
     close(server_fd_);
+
     throw std::runtime_error("Unix socket path too long");
   }
 
@@ -48,6 +50,7 @@ RpcServer::RpcServer(std::string socket_path)
 }
 
 RpcServer::~RpcServer() {
+
   stop();
 
   unlink(socket_path_.c_str());
@@ -65,109 +68,159 @@ void RpcServer::run() {
 
     if (client_fd < 0) {
 
+      // stop() 导致 accept 返回
       if (!running_) {
         break;
       }
 
+      // 被信号中断等情况
       continue;
     }
 
-    // =====================================
-    // 每个 Client 一个 Worker Thread
-    // =====================================
+    auto connection = std::make_shared<rpc::ConnectionContext>(client_fd);
 
-    std::thread(&RpcServer::handle_client, this, client_fd).detach();
+    std::thread(&RpcServer::handle_client, this, connection).detach();
   }
 }
 
-void RpcServer::handle_client(int client_fd) {
+void RpcServer::handle_client(
+    std::shared_ptr<rpc::ConnectionContext> connection) {
+
   std::cout << "Client connected" << std::endl;
 
-  // =====================================
-  // Persistent Connection Loop
-  // =====================================
-
-  while (running_) {
+  while (running_ && connection->alive) {
 
     std::string request_payload;
 
-    // 等待下一次 RPC Request
-    if (!rpc::recv_message(client_fd, request_payload)) {
+    // ====================================
+    // Receive Request
+    // ====================================
 
-      // Client disconnect
+    if (!rpc::recv_message(connection->fd, request_payload)) {
+
       break;
     }
 
-    rpc::RpcResponse response;
-
     try {
 
-      // =====================================
-      // JSON -> RPC Request
-      // =====================================
+      // ====================================
+      // Parse Request
+      // ====================================
 
       rpc::RpcRequest request =
           rpc::json::parse(request_payload).get<rpc::RpcRequest>();
 
-      response.id = request.id;
+      // ====================================
+      // Dispatch Request
+      // ====================================
 
-      // =====================================
-      // Find Handler
-      // =====================================
-
-      auto it = handlers_.find(request.method);
-
-      if (it == handlers_.end()) {
-
-        response.error = rpc::RpcError{
-            .code = -32601, .message = "Method not found: " + request.method};
-
-      } else {
-
-        // =====================================
-        // Execute RPC
-        // =====================================
-
-        response.result = it->second(request.params);
-      }
+      std::thread(&RpcServer::process_request, this, connection,
+                  std::move(request))
+          .detach();
 
     } catch (const std::exception &e) {
 
-      response.error = rpc::RpcError{.code = -32603, .message = e.what()};
-    }
+      // Request 格式错误
+      //
+      // 没有可靠 ID 时无法匹配
+      // 暂时只记录日志
 
-    // =====================================
-    // Serialize Response
-    // =====================================
-
-    std::string response_payload = rpc::json(response).dump();
-
-    // =====================================
-    // Send Response
-    // =====================================
-
-    if (!rpc::send_message(client_fd, response_payload)) {
-
-      break;
+      std::cerr << "Invalid RPC request: " << e.what() << std::endl;
     }
   }
 
-  close(client_fd);
+  // ====================================
+  // Connection Closed
+  // ====================================
+
+  connection->alive = false;
+
+  shutdown(connection->fd, SHUT_RDWR);
+
+  close(connection->fd);
 
   std::cout << "Client disconnected" << std::endl;
 }
 
+void RpcServer::process_request(
+    std::shared_ptr<rpc::ConnectionContext> connection,
+
+    rpc::RpcRequest request) {
+
+  rpc::RpcResponse response;
+
+  response.id = request.id;
+
+  try {
+
+    // ====================================
+    // Find RPC Handler
+    // ====================================
+
+    auto it = handlers_.find(request.method);
+
+    if (it == handlers_.end()) {
+
+      response.error = rpc::RpcError{
+          .code = -32601, .message = "Method not found: " + request.method};
+
+    } else {
+
+      // ====================================
+      // Execute Handler
+      // ====================================
+
+      response.result = it->second(request.params);
+    }
+
+  } catch (const std::exception &e) {
+
+    response.error = rpc::RpcError{.code = -32603, .message = e.what()};
+  }
+
+  // ====================================
+  // Connection Already Closed?
+  // ====================================
+
+  if (!connection->alive) {
+    return;
+  }
+
+  // ====================================
+  // Serialize Response
+  // ====================================
+
+  std::string response_payload = rpc::json(response).dump();
+
+  // ====================================
+  // Serialize Socket Writes
+  // ====================================
+
+  std::lock_guard<std::mutex> lock(connection->send_mutex);
+
+  // 再检查一次
+  if (!connection->alive) {
+    return;
+  }
+
+  if (!rpc::send_message(connection->fd, response_payload)) {
+
+    connection->alive = false;
+  }
+}
+
 void RpcServer::stop() {
 
-  bool expected = true;
+  if (!running_.exchange(false)) {
+    return;
+  }
 
-  if (running_.compare_exchange_strong(expected, false)) {
+  if (server_fd_ >= 0) {
 
-    if (server_fd_ >= 0) {
+    shutdown(server_fd_, SHUT_RDWR);
 
-      close(server_fd_);
+    close(server_fd_);
 
-      server_fd_ = -1;
-    }
+    server_fd_ = -1;
   }
 }

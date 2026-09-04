@@ -1,31 +1,27 @@
 #include "rpc/rpc_server.hpp"
 
+#include <chrono>
 #include <iostream>
-#include <string>
+#include <thread>
 
 int main() {
 
   RpcServer server("/tmp/demo_rpc.sock");
 
-  // int(int, int)
-  server.register_method("add", [](int a, int b) { return a + b; });
+  server.register_method("slow_add", [](int a, int b) {
+    std::this_thread::sleep_for(std::chrono::seconds(3));
 
-  // double(double, double)
-  server.register_method("divide", [](double a, double b) {
-    if (b == 0.0) {
-      throw std::runtime_error("Division by zero");
-    }
+    std::cout << "slow_add finished" << std::endl;
 
-    return a / b;
+    return a + b;
   });
 
-  // std::string(std::string)
-  server.register_method("hello",
-                         [](std::string name) { return "Hello, " + name; });
+  server.register_method("fast_add", [](int a, int b) {
+    std::this_thread::sleep_for(std::chrono::seconds(1));
 
-  // void(std::string)
-  server.register_method("log", [](std::string message) {
-    std::cout << "[LOG] " << message << std::endl;
+    std::cout << "fast_add finished" << std::endl;
+
+    return a + b;
   });
 
   server.run();

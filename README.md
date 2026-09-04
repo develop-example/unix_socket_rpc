@@ -2,6 +2,7 @@
 minimal example for explain unix socket rpc 
 
 update:
+- 异步RPC
 - 多线程并发
 - 模板化rpc client/server
 - 升级消息协议层, 改成Length-Prefixed Protocol（长度前缀协议）
@@ -25,68 +26,68 @@ make
 ```
 
 ### 3. 原理
-- client
+- 异步数据流
 ```
-call()
- │
- ├── socket()
- ├── connect()
- ├── send()
- ├── recv()
- └── close()
-
-->
-
-RpcClient()
- │
- ├── socket()
- └── connect()
-
-call()
- │
- ├── send()
- └── recv()
-
-call()
- │
- ├── send()
- └── recv()
-
-~RpcClient()
- │
- └── close()
-
+┌─────────────────────────────────────────────────────┐
+│                     RpcClient                       │
+│                                                     │
+│ call_async<int>()                                  │
+│        │                                            │
+│        ▼                                            │
+│ Request ID                                          │
+│        │                                            │
+│        ▼                                            │
+│ Pending Map                                         │
+│        │                                            │
+│        ▼                                            │
+│ Promise / Future                                    │
+│        │                                            │
+│        ▼                                            │
+│ send_mutex                                          │
+└────────┼────────────────────────────────────────────┘
+         │
+         ▼
+════════════════ Unix Socket ════════════════════════
+         │
+         ▼
+┌─────────────────────────────────────────────────────┐
+│                     RpcServer                       │
+│                                                     │
+│              Connection Receive Thread              │
+│                         │                           │
+│                         ▼                           │
+│                   recv Request                      │
+│                         │                           │
+│              ┌──────────┼──────────┐                │
+│              │          │          │                │
+│              ▼          ▼          ▼                │
+│           Worker 1   Worker 2   Worker 3            │
+│              │          │          │                │
+│              ▼          ▼          ▼                │
+│            Handler    Handler    Handler            │
+│              │          │          │                │
+│              └──────────┼──────────┘                │
+│                         │                           │
+│                         ▼                           │
+│                   ConnectionContext                 │
+│                         │                           │
+│                    send_mutex                       │
+└─────────────────────────┼───────────────────────────┘
+                          │
+                          ▼
+════════════════ Unix Socket ════════════════════════
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────┐
+│                 Client Receive Thread               │
+│                                                     │
+│ Response ID                                         │
+│     │                                               │
+│     ▼                                               │
+│ Pending Map                                         │
+│     │                                               │
+│     ▼                                               │
+│ Promise.set_value()                                 │
+└─────────────────────────────────────────────────────┘
 ```
-- server
-```
-accept()
-  │
-  ├── recv
-  ├── process
-  ├── send
-  └── close
 
-->
-
-run()
- │
- │ accept()
- │
- ├──────── Client A
- │            │
- │            ▼
- │       handle_client()
- │            │
- │            ├── Request 1
- │            ├── Response 1
- │            │
- │            ├── Request 2
- │            ├── Response 2
- │            │
- │            └── Request 3
- │
- ├──────── Client B
- │
- └──────── Client C
-
-```

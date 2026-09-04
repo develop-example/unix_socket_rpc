@@ -1,11 +1,13 @@
 #pragma once
 
+#include "rpc/connection_context.hpp"
 #include "rpc/function_traits.hpp"
 #include "rpc/rpc_message.hpp"
 #include "rpc/serialization.hpp"
 
 #include <atomic>
 #include <functional>
+#include <memory>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -19,7 +21,12 @@ public:
   ~RpcServer();
 
   RpcServer(const RpcServer &) = delete;
+
   RpcServer &operator=(const RpcServer &) = delete;
+
+  // ========================================
+  // Typed RPC Registration
+  // ========================================
 
   template <typename Func>
   void register_method(const std::string &name, Func &&func) {
@@ -55,9 +62,13 @@ public:
 private:
   using Handler = std::function<rpc::json(const rpc::json &)>;
 
-  // 一个 Client Connection
-  // 对应一个处理循环
-  void handle_client(int client_fd);
+  // 一个 Connection 一个 Receive Loop
+  void handle_client(std::shared_ptr<rpc::ConnectionContext> connection);
+
+  // 一个 Request 一个 Worker Task
+  void process_request(std::shared_ptr<rpc::ConnectionContext> connection,
+
+                       rpc::RpcRequest request);
 
 private:
   std::string socket_path_;
