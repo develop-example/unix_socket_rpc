@@ -4,11 +4,21 @@ int main() {
 
   RpcServer server("/tmp/demo_rpc.sock");
 
-  // 注册 add RPC
-  server.register_method("add", [](int a, int b) { return a + b; });
+  server.register_method("add", [](const rpc::json &params) -> rpc::json {
+    int a = params[0].get<int>();
 
-  // 注册 multiply RPC
-  server.register_method("multiply", [](int a, int b) { return a * b; });
+    int b = params[1].get<int>();
+
+    return a + b;
+  });
+
+  server.register_method("multiply", [](const rpc::json &params) -> rpc::json {
+    int a = params[0].get<int>();
+
+    int b = params[1].get<int>();
+
+    return a * b;
+  });
 
   server.run();
 

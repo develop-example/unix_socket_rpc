@@ -1,4 +1,5 @@
 #include "rpc/rpc_server.hpp"
+
 #include "rpc/protocol.hpp"
 
 #include <sys/socket.h>
@@ -7,7 +8,6 @@
 
 #include <cstring>
 #include <iostream>
-#include <sstream>
 #include <stdexcept>
 
 RpcServer::RpcServer(std::string socket_path)
@@ -50,8 +50,9 @@ RpcServer::~RpcServer() {
   unlink(socket_path_.c_str());
 }
 
-void RpcServer::register_method(const std::string &name,
-                                std::function<int(int, int)> handler) {
+void RpcServer::register_method(
+    const std::string &name,
+    std::function<rpc::json(const rpc::json &)> handler) {
   handlers_[name] = std::move(handler);
 }
 
@@ -67,49 +68,70 @@ void RpcServer::run() {
       continue;
     }
 
-    // ========================
-    // Protocol Layer
-    // ========================
+    // ============================
+    // Receive Message
+    // ============================
 
-    std::string request;
+    std::string request_payload;
 
-    if (!rpc::recv_message(client_fd, request)) {
+    if (!rpc::recv_message(client_fd, request_payload)) {
 
       close(client_fd);
       continue;
     }
 
-    // ========================
-    // RPC Layer
-    // ========================
+    rpc::RpcResponse response;
 
-    std::istringstream iss(request);
+    try {
 
-    std::string method;
-    int a, b;
+      // ============================
+      // JSON -> RPC Request
+      // ============================
 
-    iss >> method >> a >> b;
+      rpc::json request_json = rpc::json::parse(request_payload);
 
-    std::string response;
+      rpc::RpcRequest request = request_json.get<rpc::RpcRequest>();
 
-    auto it = handlers_.find(method);
+      response.id = request.id;
 
-    if (it == handlers_.end()) {
+      // ============================
+      // Find Method
+      // ============================
 
-      response = "ERROR unknown method";
+      auto it = handlers_.find(request.method);
 
-    } else {
+      if (it == handlers_.end()) {
 
-      int result = it->second(a, b);
+        response.error = rpc::RpcError{
+            .code = -32601, .message = "Method not found: " + request.method};
 
-      response = std::to_string(result);
+      } else {
+
+        // ============================
+        // Execute Handler
+        // ============================
+
+        response.result = it->second(request.params);
+      }
+
+    } catch (const std::exception &e) {
+
+      response.error = rpc::RpcError{.code = -32603, .message = e.what()};
     }
 
-    // ========================
-    // Protocol Layer
-    // ========================
+    // ============================
+    // Response -> JSON
+    // ============================
 
-    rpc::send_message(client_fd, response);
+    rpc::json response_json = response;
+
+    std::string response_payload = response_json.dump();
+
+    // ============================
+    // Send Response
+    // ============================
+
+    rpc::send_message(client_fd, response_payload);
 
     close(client_fd);
   }

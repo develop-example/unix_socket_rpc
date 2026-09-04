@@ -10,4 +10,6 @@ public:
 
 private:
   std::string socket_path_;
+
+  uint64_t next_request_id_ = 1;
 };

@@ -24,50 +24,43 @@ make
 
 ### 3. 原理
 ```
-Application
+RpcRequest
     │
-    │ call("add", 10, 20)
-    ▼
-RpcClient
+    ├── id
+    ├── method
+    └── params
+
+
+RpcResponse
     │
-    │ Serialize
-    ▼
-"add 10 20"
-    │
-    ▼
-Protocol
-    │
-    ├── Length = 9
-    │
-    └── Payload = "add 10 20"
-    │
-    ▼
-┌─────────────┬──────────────┐
-│ 00 00 00 09│ add 10 20    │
-└─────────────┴──────────────┘
-    │
-    ▼
-Unix Domain Socket
-    │
-    ▼
-Protocol
-    │
-    ├── read 4 bytes
-    │
-    ├── length = 9
-    │
-    └── read 9 bytes
-    ▼
-"add 10 20"
-    │
-    ▼
-RpcServer
-    │
-    ├── Parse Method
-    │
-    ├── Find Handler
-    │
-    └── Execute
-    ▼
-30
+    ├── id
+    ├── result
+    └── error
+
+
+┌──────────────────────────────┐
+│        Application           │
+│                              │
+│ client.call("add", 10, 20)   │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│          RPC Layer           │
+│                              │
+│ Request / Response           │
+│ Method / Params / ID         │
+└──────────────┬───────────────┘
+               │ JSON
+               ▼
+┌──────────────────────────────┐
+│       Message Framing        │
+│                              │
+│ [Length][Payload]            │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│      Unix Domain Socket      │
+└──────────────────────────────┘
 ```

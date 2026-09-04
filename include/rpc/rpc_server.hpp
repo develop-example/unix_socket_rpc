@@ -1,5 +1,7 @@
 #pragma once
 
+#include "rpc/rpc_message.hpp"
+
 #include <functional>
 #include <string>
 #include <unordered_map>
@@ -11,7 +13,7 @@ public:
   ~RpcServer();
 
   void register_method(const std::string &name,
-                       std::function<int(int, int)> handler);
+                       std::function<rpc::json(const rpc::json &)> handler);
 
   void run();
 
@@ -20,5 +22,6 @@ private:
 
   int server_fd_ = -1;
 
-  std::unordered_map<std::string, std::function<int(int, int)>> handlers_;
+  std::unordered_map<std::string, std::function<rpc::json(const rpc::json &)>>
+      handlers_;
 };
