@@ -9,6 +9,7 @@
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
+#include <thread>
 
 RpcServer::RpcServer(std::string socket_path)
     : socket_path_(std::move(socket_path)) {
@@ -24,6 +25,11 @@ RpcServer::RpcServer(std::string socket_path)
   sockaddr_un addr{};
   addr.sun_family = AF_UNIX;
 
+  if (socket_path_.size() >= sizeof(addr.sun_path)) {
+    close(server_fd_);
+    throw std::runtime_error("Unix socket path too long");
+  }
+
   std::strncpy(addr.sun_path, socket_path_.c_str(), sizeof(addr.sun_path) - 1);
 
   if (bind(server_fd_, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
@@ -33,7 +39,7 @@ RpcServer::RpcServer(std::string socket_path)
     throw std::runtime_error("Failed to bind socket");
   }
 
-  if (listen(server_fd_, 10) < 0) {
+  if (listen(server_fd_, 128) < 0) {
 
     close(server_fd_);
 
@@ -42,55 +48,72 @@ RpcServer::RpcServer(std::string socket_path)
 }
 
 RpcServer::~RpcServer() {
-
-  if (server_fd_ >= 0) {
-    close(server_fd_);
-  }
+  stop();
 
   unlink(socket_path_.c_str());
 }
 
 void RpcServer::run() {
 
+  running_ = true;
+
   std::cout << "RPC Server listening on " << socket_path_ << std::endl;
 
-  while (true) {
+  while (running_) {
 
     int client_fd = accept(server_fd_, nullptr, nullptr);
 
     if (client_fd < 0) {
+
+      if (!running_) {
+        break;
+      }
+
       continue;
     }
 
-    // ============================
-    // Receive Message
-    // ============================
+    // =====================================
+    // 每个 Client 一个 Worker Thread
+    // =====================================
+
+    std::thread(&RpcServer::handle_client, this, client_fd).detach();
+  }
+}
+
+void RpcServer::handle_client(int client_fd) {
+  std::cout << "Client connected" << std::endl;
+
+  // =====================================
+  // Persistent Connection Loop
+  // =====================================
+
+  while (running_) {
 
     std::string request_payload;
 
+    // 等待下一次 RPC Request
     if (!rpc::recv_message(client_fd, request_payload)) {
 
-      close(client_fd);
-      continue;
+      // Client disconnect
+      break;
     }
 
     rpc::RpcResponse response;
 
     try {
 
-      // ============================
+      // =====================================
       // JSON -> RPC Request
-      // ============================
+      // =====================================
 
-      rpc::json request_json = rpc::json::parse(request_payload);
-
-      rpc::RpcRequest request = request_json.get<rpc::RpcRequest>();
+      rpc::RpcRequest request =
+          rpc::json::parse(request_payload).get<rpc::RpcRequest>();
 
       response.id = request.id;
 
-      // ============================
-      // Find Method
-      // ============================
+      // =====================================
+      // Find Handler
+      // =====================================
 
       auto it = handlers_.find(request.method);
 
@@ -101,9 +124,9 @@ void RpcServer::run() {
 
       } else {
 
-        // ============================
-        // Execute Handler
-        // ============================
+        // =====================================
+        // Execute RPC
+        // =====================================
 
         response.result = it->second(request.params);
       }
@@ -113,20 +136,38 @@ void RpcServer::run() {
       response.error = rpc::RpcError{.code = -32603, .message = e.what()};
     }
 
-    // ============================
-    // Response -> JSON
-    // ============================
+    // =====================================
+    // Serialize Response
+    // =====================================
 
-    rpc::json response_json = response;
+    std::string response_payload = rpc::json(response).dump();
 
-    std::string response_payload = response_json.dump();
-
-    // ============================
+    // =====================================
     // Send Response
-    // ============================
+    // =====================================
 
-    rpc::send_message(client_fd, response_payload);
+    if (!rpc::send_message(client_fd, response_payload)) {
 
-    close(client_fd);
+      break;
+    }
+  }
+
+  close(client_fd);
+
+  std::cout << "Client disconnected" << std::endl;
+}
+
+void RpcServer::stop() {
+
+  bool expected = true;
+
+  if (running_.compare_exchange_strong(expected, false)) {
+
+    if (server_fd_ >= 0) {
+
+      close(server_fd_);
+
+      server_fd_ = -1;
+    }
   }
 }

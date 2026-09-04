@@ -2,6 +2,7 @@
 minimal example for explain unix socket rpc 
 
 update:
+- 多线程并发
 - 模板化rpc client/server
 - 升级消息协议层, 改成Length-Prefixed Protocol（长度前缀协议）
 - 增加 RpcClient / RpcServer 封装
@@ -26,69 +27,66 @@ make
 ### 3. 原理
 - client
 ```
-C++ Arguments
+call()
+ │
+ ├── socket()
+ ├── connect()
+ ├── send()
+ ├── recv()
+ └── close()
 
-10, 20
-   │
-   ▼
-make_params()
-   │
-   ▼
-JSON
+->
 
-[10, 20]
-   │
-   ▼
-RPC Request
+RpcClient()
+ │
+ ├── socket()
+ └── connect()
 
-{
-    "id": 1,
-    "method": "add",
-    "params": [10, 20]
-}
+call()
+ │
+ ├── send()
+ └── recv()
+
+call()
+ │
+ ├── send()
+ └── recv()
+
+~RpcClient()
+ │
+ └── close()
+
 ```
 - server
 ```
-RPC Request
-      │
-      ▼
-JSON params
+accept()
+  │
+  ├── recv
+  ├── process
+  ├── send
+  └── close
 
-[10, 20]
-      │
-      ▼
-json_to_tuple
+->
 
-tuple<int, int>
-      │
-      ▼
-std::apply
+run()
+ │
+ │ accept()
+ │
+ ├──────── Client A
+ │            │
+ │            ▼
+ │       handle_client()
+ │            │
+ │            ├── Request 1
+ │            ├── Response 1
+ │            │
+ │            ├── Request 2
+ │            ├── Response 2
+ │            │
+ │            └── Request 3
+ │
+ ├──────── Client B
+ │
+ └──────── Client C
 
-lambda(10, 20)
-      │
-      ▼
-30
-      │
-      ▼
-JSON Response
-
-```
-- 核心转换
-```
-Client Side
-
-Args...
-   ↓
-JSON Array
-
-
-Server Side
-
-JSON Array
-   ↓
-Tuple<Args...>
-   ↓
-std::apply()
-   ↓
-Function Call
 ```

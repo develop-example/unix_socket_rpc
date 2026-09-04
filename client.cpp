@@ -1,29 +1,32 @@
 #include "rpc/rpc_client.hpp"
 
 #include <iostream>
-#include <string>
+#include <thread>
+#include <vector>
 
-int main() {
+void worker(int id) {
 
   RpcClient client("/tmp/demo_rpc.sock");
 
-  // int
-  int sum = client.call<int>("add", 10, 20);
+  for (int i = 0; i < 10; ++i) {
 
-  std::cout << "add: " << sum << std::endl;
+    int result = client.call<int>("add", id, i);
+    printf("Client %d: add(%d, %d) = %d\n", id, id, i, result);
+    // std::cout << "Client " << id << ": " << result << std::endl;
+  }
+}
 
-  // double
-  double result = client.call<double>("divide", 10.0, 3.0);
+int main() {
 
-  std::cout << "divide: " << result << std::endl;
+  std::vector<std::thread> threads;
 
-  // string
-  std::string hello = client.call<std::string>("hello", "FWG");
+  for (int i = 0; i < 5; ++i) {
+    threads.emplace_back(worker, i);
+  }
 
-  std::cout << hello << std::endl;
-
-  // void
-  client.call<void>("log", "Hello RPC");
+  for (auto &thread : threads) {
+    thread.join();
+  }
 
   return 0;
 }

@@ -4,6 +4,7 @@
 #include "rpc/rpc_message.hpp"
 #include "rpc/serialization.hpp"
 
+#include <atomic>
 #include <functional>
 #include <string>
 #include <tuple>
@@ -17,9 +18,8 @@ public:
 
   ~RpcServer();
 
-  // ========================================
-  // 注册 Typed RPC
-  // ========================================
+  RpcServer(const RpcServer &) = delete;
+  RpcServer &operator=(const RpcServer &) = delete;
 
   template <typename Func>
   void register_method(const std::string &name, Func &&func) {
@@ -31,45 +31,40 @@ public:
 
     using ArgsTuple = typename Traits::args_tuple;
 
-    // 将 Typed Function
-    //
-    // R(Args...)
-    //
-    // 包装成：
-    //
-    // json(json)
-    //
     handlers_[name] = [func = std::forward<Func>(func)](
                           const rpc::json &params) mutable -> rpc::json {
-      // JSON -> Tuple<Args...>
       auto args = rpc::json_to_tuple<ArgsTuple>(params);
 
       if constexpr (std::is_void_v<ReturnType>) {
 
-        // 调用 void 函数
         std::apply(func, args);
 
         return nullptr;
 
       } else {
 
-        // 调用有返回值函数
-        ReturnType result = std::apply(func, args);
-
-        // C++ Type -> JSON
-        return result;
+        return std::apply(func, args);
       }
     };
   }
 
   void run();
 
+  void stop();
+
 private:
   using Handler = std::function<rpc::json(const rpc::json &)>;
 
+  // 一个 Client Connection
+  // 对应一个处理循环
+  void handle_client(int client_fd);
+
+private:
   std::string socket_path_;
 
   int server_fd_ = -1;
+
+  std::atomic<bool> running_{false};
 
   std::unordered_map<std::string, Handler> handlers_;
 };

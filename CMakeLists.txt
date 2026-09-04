@@ -10,7 +10,6 @@ find_package(nlohmann_json REQUIRED)
 # RPC Library
 add_library(rpc
     src/protocol.cpp
-    src/rpc_client.cpp
     src/rpc_server.cpp
 )
 
