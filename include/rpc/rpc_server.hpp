@@ -4,6 +4,7 @@
 #include "rpc/function_traits.hpp"
 #include "rpc/rpc_message.hpp"
 #include "rpc/serialization.hpp"
+#include "rpc/thread_pool.hpp"
 
 #include <atomic>
 #include <functional>
@@ -16,7 +17,7 @@
 
 class RpcServer {
 public:
-  explicit RpcServer(std::string socket_path);
+  explicit RpcServer(std::string socket_path, std::size_t worker_threads);
 
   ~RpcServer();
 
@@ -78,4 +79,6 @@ private:
   std::atomic<bool> running_{false};
 
   std::unordered_map<std::string, Handler> handlers_;
+
+  std::unique_ptr<rpc::ThreadPool> thread_pool_;
 };

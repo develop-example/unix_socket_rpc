@@ -2,6 +2,7 @@
 minimal example for explain unix socket rpc 
 
 update:
+- 线程池
 - 异步RPC
 - 多线程并发
 - 模板化rpc client/server
@@ -26,68 +27,41 @@ make
 ```
 
 ### 3. 原理
-- 异步数据流
+- RPC server架构
 ```
-┌─────────────────────────────────────────────────────┐
-│                     RpcClient                       │
-│                                                     │
-│ call_async<int>()                                  │
-│        │                                            │
-│        ▼                                            │
-│ Request ID                                          │
-│        │                                            │
-│        ▼                                            │
-│ Pending Map                                         │
-│        │                                            │
-│        ▼                                            │
-│ Promise / Future                                    │
-│        │                                            │
-│        ▼                                            │
-│ send_mutex                                          │
-└────────┼────────────────────────────────────────────┘
-         │
-         ▼
-════════════════ Unix Socket ════════════════════════
-         │
-         ▼
-┌─────────────────────────────────────────────────────┐
-│                     RpcServer                       │
-│                                                     │
-│              Connection Receive Thread              │
-│                         │                           │
-│                         ▼                           │
-│                   recv Request                      │
-│                         │                           │
-│              ┌──────────┼──────────┐                │
-│              │          │          │                │
-│              ▼          ▼          ▼                │
-│           Worker 1   Worker 2   Worker 3            │
-│              │          │          │                │
-│              ▼          ▼          ▼                │
-│            Handler    Handler    Handler            │
-│              │          │          │                │
-│              └──────────┼──────────┘                │
-│                         │                           │
-│                         ▼                           │
-│                   ConnectionContext                 │
-│                         │                           │
-│                    send_mutex                       │
-└─────────────────────────┼───────────────────────────┘
-                          │
-                          ▼
-════════════════ Unix Socket ════════════════════════
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────┐
-│                 Client Receive Thread               │
-│                                                     │
-│ Response ID                                         │
-│     │                                               │
-│     ▼                                               │
-│ Pending Map                                         │
-│     │                                               │
-│     ▼                                               │
-│ Promise.set_value()                                 │
-└─────────────────────────────────────────────────────┘
+                         RpcServer
+                             │
+                         accept()
+                             │
+                 ┌───────────┴───────────┐
+                 │                       │
+           Connection A             Connection B
+                 │                       │
+                 ▼                       ▼
+           Receive Thread          Receive Thread
+                 │                       │
+                 └───────────┬───────────┘
+                             │
+                             ▼
+                      ┌────────────┐
+                      │ Task Queue │
+                      └──────┬─────┘
+                             │
+             ┌───────────────┼───────────────┐
+             ▼               ▼               ▼
+         Worker 1        Worker 2        Worker N
+             │               │               │
+             ▼               ▼               ▼
+          Handler         Handler         Handler
+             │               │               │
+             └───────────────┼───────────────┘
+                             │
+                             ▼
+                    ConnectionContext
+                             │
+                       send_mutex
+                             │
+                             ▼
+                          Socket
 ```
 

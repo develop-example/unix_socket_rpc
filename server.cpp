@@ -6,7 +6,7 @@
 
 int main() {
 
-  RpcServer server("/tmp/demo_rpc.sock");
+  RpcServer server("/tmp/demo_rpc.sock", 4);
 
   server.register_method("slow_add", [](int a, int b) {
     std::this_thread::sleep_for(std::chrono::seconds(3));

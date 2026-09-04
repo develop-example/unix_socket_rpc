@@ -11,8 +11,9 @@
 #include <stdexcept>
 #include <thread>
 
-RpcServer::RpcServer(std::string socket_path)
-    : socket_path_(std::move(socket_path)) {
+RpcServer::RpcServer(std::string socket_path, std::size_t worker_threads)
+    : socket_path_(std::move(socket_path)),
+      thread_pool_(std::make_unique<rpc::ThreadPool>(worker_threads)) {
 
   unlink(socket_path_.c_str());
 
@@ -52,6 +53,11 @@ RpcServer::RpcServer(std::string socket_path)
 RpcServer::~RpcServer() {
 
   stop();
+
+  if (thread_pool_) {
+
+    thread_pool_->stop();
+  }
 
   unlink(socket_path_.c_str());
 }
@@ -114,9 +120,10 @@ void RpcServer::handle_client(
       // Dispatch Request
       // ====================================
 
-      std::thread(&RpcServer::process_request, this, connection,
-                  std::move(request))
-          .detach();
+      thread_pool_->submit(
+          [this, connection, request = std::move(request)]() mutable {
+            process_request(connection, std::move(request));
+          });
 
     } catch (const std::exception &e) {
 
