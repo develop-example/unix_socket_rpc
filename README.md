@@ -1,5 +1,8 @@
 ## Unix socket RPC
-minimal example for explain unix socket rpc
+minimal example for explain unix socket rpc 
+
+update:
+- 增加 RpcClient / RpcServer 封装
 
 ### 1. build
 ```
@@ -20,28 +23,37 @@ make
 
 ### 3. 原理
 ```
-Client API
-    │
-    │ add(10, 20)
-    ▼
-RPC Serialization
-    │
-    │ "add 10 20"
-    ▼
-Unix Socket
-    │
-    ▼
-Server
-    │
-    │ method == "add"
-    ▼
-真实函数
-    │
-    │ return a + b
-    ▼
-Response
-    │
-    │ "30"
-    ▼
-Unix Socket
+┌──────────────────────────────┐
+│        Application           │
+│                              │
+│ client.call("add", 10, 20)   │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│         RpcClient            │
+│                              │
+│ Serialize Request            │
+│ Connect Socket               │
+│ Send / Receive               │
+└──────────────┬───────────────┘
+               │
+               ▼
+         Unix Socket
+               │
+               ▼
+┌──────────────────────────────┐
+│         RpcServer            │
+│                              │
+│ Parse Request                │
+│ Find Handler                 │
+│ Execute Function             │
+└──────────────┬───────────────┘
+               │
+               ▼
+        handlers_
+        ┌───────────────┐
+        │ add      ───► │ lambda
+        │ multiply ───► │ lambda
+        └───────────────┘
 ```
